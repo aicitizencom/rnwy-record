@@ -55,4 +55,10 @@ An error in the record can be reported by opening an issue here or writing to co
 
 ## License
 
-To be stated with the first monthly snapshot (December 1, 2026).
+The files under `daily/` are offered under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/): they can be reused for any purpose with credit to RNWY.
+
+A citation that can be checked names the day and the file's fingerprint, for example:
+
+> RNWY, daily record of MCP servers, 2026-11-12, github.com/aicitizencom/rnwy-record, SHA-256 06790d16…06f5, methodology v1.0.
+
+How each number is measured: https://rnwy.com/methodology#record
