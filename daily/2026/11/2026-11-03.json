@@ -1,0 +1,32 @@
+{
+  "day": "2026-11-03",
+  "format": "daily-1.0",
+  "file": "2026-11-03.csv.gz",
+  "columns": [
+    "listing_id",
+    "source",
+    "name",
+    "checked_at",
+    "answered",
+    "status_code",
+    "no_reply",
+    "response_ms"
+  ],
+  "rows": 1000,
+  "listings": 1000,
+  "answered": 993,
+  "no_answer": 7,
+  "by_source": {
+    "smithery": 1000
+  },
+  "by_reply": {
+    "no_reply": 1000
+  },
+  "sha256_csv_gz": "5ccf8d4d1a2636c8d1688030c7580f38a2a80f5c4228a2dbe65fbac7c2643bc0",
+  "sha256_csv": "ccce89d269121fb91c828f21fed91255b7551be0288f006063530239e2eed4b0",
+  "bytes_csv_gz": 38055,
+  "bytes_csv": 113231,
+  "exported_at": "2026-11-12T16:39:33.683Z",
+  "source_table": "off_chain_liveness",
+  "note": "answered = any HTTP reply within 6 seconds. Addresses and raw error text are not published."
+}
