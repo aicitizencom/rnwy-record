@@ -1,0 +1,83 @@
+name: Publish the daily record
+
+# Copies each day's file from RNWY's public store, checks it against its manifest,
+# commits it, and signs it (GitHub artifact attestation, written to a public transparency log).
+# This workflow holds no secrets and measures nothing; the measuring happens elsewhere.
+
+on:
+  schedule:
+    - cron: '40 6 * * *'    # after the 05:00 UTC daily check
+    - cron: '40 14 * * *'   # second chance the same day
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'One day to fetch, like 2026-11-12. Blank = the last 7 days that are missing.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch and check
+        id: fetch
+        env:
+          ONE_DAY: ${{ inputs.date }}
+        run: |
+          set -uo pipefail
+          if [ -n "$ONE_DAY" ]; then days="$ONE_DAY"; else days=$(for i in 6 5 4 3 2 1 0; do date -u -d "-$i day" +%F; done); fi
+          failed=0
+          : > added.txt
+          for d in $days; do
+            out=$(scripts/fetch-day.sh "$d") || failed=1
+            echo "$out"
+            echo "$out" | sed -n 's/^added //p' >> added.txt
+          done
+          echo "count=$(wc -l < added.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          { echo 'paths<<EOF'; cat added.txt; echo EOF; } >> "$GITHUB_OUTPUT"
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+
+      - name: Commit
+        if: steps.fetch.outputs.count != '0'
+        run: |
+          git config user.name "rnwy-record"
+          git config user.email "contact@rnwy.com"
+          git add daily
+          git commit -m "Daily record: $(sed 's#.*/##; s#\.csv\.gz##' added.txt | paste -sd' ' -)"
+          git push
+
+      - name: Sign
+        if: steps.fetch.outputs.count != '0'
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: ${{ steps.fetch.outputs.paths }}
+
+      - name: Ask the Internet Archive to keep a copy
+        if: steps.fetch.outputs.count != '0'
+        continue-on-error: true
+        run: |
+          while read -r p; do
+            for f in "$p" "${p%.csv.gz}.json"; do
+              url="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/$f"
+              code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 90 "https://web.archive.org/save/$url" || echo 000)
+              echo "$f: archive.org answered $code"
+            done
+          done < added.txt
+
+      - name: Fail if any day was refused
+        if: steps.fetch.outputs.failed == '1'
+        run: |
+          echo "At least one day failed its check or differs from the copy kept here. See the log above."
+          exit 1
