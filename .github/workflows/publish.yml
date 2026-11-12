@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       date:
-        description: 'One day to fetch, like 2026-11-12. Blank = the last 7 days that are missing.'
+        description: 'One day to fetch, like 2026-11-12. Blank = any of the last 41 days that are missing.'
         required: false
         default: ''
 
@@ -37,7 +37,7 @@ jobs:
           ONE_DAY: ${{ inputs.date }}
         run: |
           set -uo pipefail
-          if [ -n "$ONE_DAY" ]; then days="$ONE_DAY"; else days=$(for i in 6 5 4 3 2 1 0; do date -u -d "-$i day" +%F; done); fi
+          if [ -n "$ONE_DAY" ]; then days="$ONE_DAY"; else days=$(for i in $(seq 40 -1 0); do date -u -d "-$i day" +%F; done); fi
           failed=0
           : > added.txt
           for d in $days; do
