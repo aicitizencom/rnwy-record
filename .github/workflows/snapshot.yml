@@ -1,0 +1,107 @@
+name: Publish the monthly snapshot
+
+# On the 1st of each month: copies the snapshot of the month just ended from RNWY's public
+# store, checks every file against the manifest, commits, signs, tags, and makes a release.
+# No secrets. Nothing is measured or computed here.
+
+on:
+  schedule:
+    - cron: '10 8 1 * *'    # the 1st, after RNWY builds the snapshot at 07:20 UTC
+    - cron: '10 16 1 * *'   # second chance the same day
+    - cron: '10 8 2 * *'    # and the next morning
+  workflow_dispatch:
+    inputs:
+      month:
+        description: 'Month to fetch, like 2026-11. Blank = the month before this one.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch and check
+        id: fetch
+        env:
+          MONTH_IN: ${{ inputs.month }}
+        run: |
+          set -uo pipefail
+          month="${MONTH_IN:-$(date -u -d "$(date -u +%Y-%m-01) -1 day" +%Y-%m)}"
+          echo "month=$month" >> "$GITHUB_OUTPUT"
+          failed=0
+          out=$(scripts/fetch-snapshot.sh "$month") || failed=1
+          echo "$out"
+          echo "$out" | sed -n 's/^added //p' > added.txt
+          echo "count=$(wc -l < added.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          { echo 'paths<<EOF'; cat added.txt; echo EOF; } >> "$GITHUB_OUTPUT"
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+          if [ "$failed" = "1" ]; then git checkout -- . 2>/dev/null; git clean -fdq daily snapshots 2>/dev/null; fi
+
+      - name: Stop if a file was refused
+        if: steps.fetch.outputs.failed == '1'
+        run: |
+          echo "The snapshot failed a check or differs from the copy kept here. Nothing was committed. See the log above."
+          exit 1
+
+      - name: Commit and tag
+        if: steps.fetch.outputs.count != '0'
+        env:
+          MONTH: ${{ steps.fetch.outputs.month }}
+        run: |
+          git config user.name "rnwy-record"
+          git config user.email "contact@rnwy.com"
+          git add daily snapshots
+          git commit -m "Snapshot $MONTH"
+          git tag "snapshot-$MONTH"
+          git push
+          git push origin "snapshot-$MONTH"
+
+      - name: Sign
+        if: steps.fetch.outputs.count != '0'
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: ${{ steps.fetch.outputs.paths }}
+
+      - name: Release
+        if: steps.fetch.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MONTH: ${{ steps.fetch.outputs.month }}
+        run: |
+          m="snapshots/$MONTH/manifest.json"
+          {
+            echo "RNWY record, snapshot $MONTH."
+            echo
+            echo "- Listed MCP servers: $(jq -r '.summary.mcp_listings' "$m")"
+            echo "- Checked this month: $(jq -r '.summary.mcp_listings_checked_in_month' "$m"); answered at least once: $(jq -r '.summary.mcp_listings_answered_at_least_once' "$m")"
+            echo "- Daily files: $(jq -r '.daily_files | length' "$m"); gap days: $(jq -r '.gap_days | length' "$m"); checker-fault days: $(jq -r '.checker_fault_days | join(", ")' "$m")"
+            echo "- On-chain agents: $(jq -r '.summary.agents' "$m"); scores computed between $(jq -r '.summary.agent_scores_computed_from' "$m") and $(jq -r '.summary.agent_scores_computed_to' "$m")"
+            echo "- Methodology: $(jq -r '.methodology' "$m") ($(jq -r '.methodology_url' "$m")). License: $(jq -r '.license' "$m")."
+            echo
+            echo "Every file's SHA-256 is in the manifest. Each file is signed; with the GitHub CLI: gh attestation verify <file> --repo $GITHUB_REPOSITORY"
+          } > notes.md
+          gh release create "snapshot-$MONTH" snapshots/"$MONTH"/* --title "Snapshot $MONTH" --notes-file notes.md
+
+      - name: Ask the Internet Archive to keep a copy
+        if: steps.fetch.outputs.count != '0'
+        continue-on-error: true
+        env:
+          MONTH: ${{ steps.fetch.outputs.month }}
+        run: |
+          for f in snapshots/"$MONTH"/*; do
+            url="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/snapshot-$MONTH/$f"
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 120 "https://web.archive.org/save/$url" || echo 000)
+            echo "$f: archive.org answered $code"
+          done

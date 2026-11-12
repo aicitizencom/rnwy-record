@@ -11,6 +11,19 @@ daily/YYYY/MM/YYYY-MM-DD.csv.gz   one line per check made that UTC day
 daily/YYYY/MM/YYYY-MM-DD.json     manifest: row count, SHA-256 of the file, counts by reply
 ```
 
+On the 1st of each month a snapshot of the month just ended is added, tagged `snapshot-YYYY-MM`, and published as a release:
+
+```
+snapshots/YYYY-MM/manifest.json            every file's row count and SHA-256; each daily file's fingerprint; gap days
+snapshots/YYYY-MM/mcp-servers.csv.gz       one row per listed MCP server
+snapshots/YYYY-MM/agents.csv.gz            one row per indexed on-chain agent, with the date its score was computed
+snapshots/YYYY-MM/tool-list-history.csv.gz the month's tool-list scans (fingerprints, not full lists)
+snapshots/YYYY-MM/listing-events.csv.gz    the month's dated listing status changes
+snapshots/YYYY-MM/ledger.json              daily coverage for the month and every dated ledger event
+```
+
+In `mcp-servers`, an empty cell means RNWY made no check or no scan. It does not mean the server failed. In `agents`, a score computed in an earlier month is published as that earlier score, with its date.
+
 Columns of the daily file:
 
 | Column | Meaning |
