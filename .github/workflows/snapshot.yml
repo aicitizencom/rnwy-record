@@ -3,6 +3,11 @@ name: Publish the monthly snapshot
 # On the 1st of each month: copies the snapshot of the month just ended from RNWY's public
 # store, checks every file against the manifest, commits, signs, tags, and makes a release.
 # No secrets. Nothing is measured or computed here.
+#
+# Rehearsal (by hand only): runs every step for real on RNWY's preview of a month, on a branch
+# and a tag of its own, as a pre-release marked "not a snapshot", and then removes the release,
+# the tag and the branch again. It never writes to main or under snapshots/. It is how the path
+# is proven before the 1st without publishing anything permanent.
 
 on:
   schedule:
@@ -15,6 +20,11 @@ on:
         description: 'Month to fetch, like 2026-11. Blank = the month before this one.'
         required: false
         default: ''
+      rehearsal:
+        description: 'yes = practice run on the preview of the month; publishes nothing and cleans up after itself.'
+        type: choice
+        options: ['no', 'yes']
+        default: 'no'
 
 permissions:
   contents: write
@@ -36,9 +46,12 @@ jobs:
         id: fetch
         env:
           MONTH_IN: ${{ inputs.month }}
+          REHEARSAL: ${{ inputs.rehearsal == 'yes' && '1' || '' }}
         run: |
           set -uo pipefail
           month="${MONTH_IN:-$(date -u -d "$(date -u +%Y-%m-01) -1 day" +%Y-%m)}"
+          # A rehearsal with no month typed uses the month now running: that is the one that has a preview.
+          if [ "$REHEARSAL" = "1" ] && [ -z "$MONTH_IN" ]; then month="$(date -u +%Y-%m)"; fi
           echo "month=$month" >> "$GITHUB_OUTPUT"
           failed=0
           out=$(scripts/fetch-snapshot.sh "$month") || failed=1
@@ -47,7 +60,7 @@ jobs:
           echo "count=$(wc -l < added.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
           { echo 'paths<<EOF'; cat added.txt; echo EOF; } >> "$GITHUB_OUTPUT"
           echo "failed=$failed" >> "$GITHUB_OUTPUT"
-          if [ "$failed" = "1" ]; then git checkout -- . 2>/dev/null; git clean -fdq daily snapshots 2>/dev/null; fi
+          if [ "$failed" = "1" ]; then git checkout -- . 2>/dev/null; git clean -fdq daily snapshots rehearsal 2>/dev/null; fi
 
       - name: Stop if a file was refused
         if: steps.fetch.outputs.failed == '1'
@@ -56,7 +69,7 @@ jobs:
           exit 1
 
       - name: Commit and tag
-        if: steps.fetch.outputs.count != '0'
+        if: steps.fetch.outputs.count != '0' && inputs.rehearsal != 'yes'
         env:
           MONTH: ${{ steps.fetch.outputs.month }}
         run: |
@@ -67,6 +80,20 @@ jobs:
           git tag "snapshot-$MONTH"
           git push
           git push origin "snapshot-$MONTH"
+
+      - name: Rehearsal, commit and tag on a branch of its own
+        if: steps.fetch.outputs.count != '0' && inputs.rehearsal == 'yes'
+        env:
+          MONTH: ${{ steps.fetch.outputs.month }}
+        run: |
+          git config user.name "rnwy-record"
+          git config user.email "contact@rnwy.com"
+          git add daily rehearsal
+          git commit -m "Rehearsal $MONTH (not a snapshot)"
+          git tag "rehearsal-$MONTH"
+          git push origin "HEAD:refs/heads/rehearsal-branch-$MONTH"
+          git push origin "refs/tags/rehearsal-$MONTH"
+          ls -l "rehearsal/$MONTH"
 
       - name: Sign
         if: steps.fetch.outputs.count != '0'
@@ -79,8 +106,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           MONTH: ${{ steps.fetch.outputs.month }}
+          REHEARSAL: ${{ inputs.rehearsal == 'yes' && '1' || '' }}
         run: |
-          m="snapshots/$MONTH/manifest.json"
+          if [ "$REHEARSAL" = "1" ]; then dir="rehearsal/$MONTH"; tag="rehearsal-$MONTH"; else dir="snapshots/$MONTH"; tag="snapshot-$MONTH"; fi
+          m="$dir/manifest.json"
           {
             echo "RNWY record, snapshot $MONTH."
             echo
@@ -92,10 +121,28 @@ jobs:
             echo
             echo "Every file's SHA-256 is in the manifest. Each file is signed; with the GitHub CLI: gh attestation verify <file> --repo $GITHUB_REPOSITORY"
           } > notes.md
-          gh release create "snapshot-$MONTH" snapshots/"$MONTH"/* --title "Snapshot $MONTH" --notes-file notes.md
+          if [ "$REHEARSAL" = "1" ]; then
+            { echo "REHEARSAL. This is not a snapshot. It was built from a preview to test the publishing steps and is removed again by the same run."; echo; cat notes.md; } > rehearsal-notes.md
+            gh release create "$tag" "$dir"/* --prerelease --title "Rehearsal $MONTH (not a snapshot)" --notes-file rehearsal-notes.md
+            echo "The rehearsal release as GitHub holds it:"
+            gh release view "$tag" --json name,isPrerelease,tagName,assets --jq '{name, isPrerelease, tagName, assets: [.assets[] | {name, size}]}'
+          else
+            gh release create "$tag" "$dir"/* --title "Snapshot $MONTH" --notes-file notes.md
+          fi
+
+      - name: Rehearsal, remove what it made
+        if: always() && inputs.rehearsal == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MONTH: ${{ steps.fetch.outputs.month }}
+        run: |
+          [ -n "$MONTH" ] || { echo "No month was set; nothing to remove."; exit 0; }
+          gh release delete "rehearsal-$MONTH" --yes 2>/dev/null && echo "Release removed." || echo "No release to remove."
+          git push origin --delete "refs/tags/rehearsal-$MONTH" 2>/dev/null && echo "Tag removed." || echo "No tag to remove."
+          git push origin --delete "refs/heads/rehearsal-branch-$MONTH" 2>/dev/null && echo "Branch removed." || echo "No branch to remove."
 
       - name: Ask the Internet Archive to keep a copy
-        if: steps.fetch.outputs.count != '0'
+        if: steps.fetch.outputs.count != '0' && inputs.rehearsal != 'yes'
         continue-on-error: true
         env:
           MONTH: ${{ steps.fetch.outputs.month }}

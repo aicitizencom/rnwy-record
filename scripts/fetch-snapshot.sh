@@ -3,6 +3,10 @@
 # every file against the manifest. Never replaces a snapshot that is already here.
 #
 # Usage: scripts/fetch-snapshot.sh 2026-11
+#
+# REHEARSAL=1 is a practice run of the whole path. It reads RNWY's preview of the month
+# (snapshots-preview/, which a real run refuses) and writes under rehearsal/, never under
+# snapshots/. Nothing it writes is a snapshot.
 # Exit 0: the snapshot was added, is already here and unchanged, or is not published yet.
 # Exit 1: a file failed its check, the manifest is a preview or an unfinished month, or the
 #         published snapshot differs from the copy kept here.
@@ -13,16 +17,20 @@ MONTH="$1"
 if ! [[ "$MONTH" =~ ^[0-9]{4}-[0-9]{2}$ ]]; then echo "Not a month: $MONTH" >&2; exit 1; fi
 
 ROOT="${RECORD_ROOT:-https://zgzjdlheaofmmaxbvrzh.supabase.co/storage/v1/object/public/record}"
-DIR="snapshots/$MONTH"
+if [ "${REHEARSAL:-}" = "1" ]; then SRC="snapshots-preview/$MONTH"; DIR="rehearsal/$MONTH"; else SRC="snapshots/$MONTH"; DIR="snapshots/$MONTH"; fi
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-code=$(curl -sS -L --max-time 60 -o "$TMP/manifest.json" -w '%{http_code}' "$ROOT/$DIR/manifest.json?t=$(date +%s)" || echo 000)
+code=$(curl -sS -L --max-time 60 -o "$TMP/manifest.json" -w '%{http_code}' "$ROOT/$SRC/manifest.json?t=$(date +%s)" || echo 000)
 if [ "$code" != "200" ]; then echo "$MONTH: no snapshot published yet (HTTP $code)."; exit 0; fi
 
 if [ "$(jq -r '.snapshot' "$TMP/manifest.json")" != "$MONTH" ]; then echo "$MONTH: manifest names a different month." >&2; exit 1; fi
-if [ "$(jq -r '.preview' "$TMP/manifest.json")" != "false" ]; then echo "$MONTH: manifest is a preview. Refused." >&2; exit 1; fi
-if [ "$(jq -r '.complete' "$TMP/manifest.json")" != "true" ]; then echo "$MONTH: the month was not over when this was built. Refused." >&2; exit 1; fi
+if [ "${REHEARSAL:-}" = "1" ]; then
+  if [ "$(jq -r '.preview' "$TMP/manifest.json")" != "true" ]; then echo "$MONTH: a rehearsal only reads a preview, and this manifest is not one. Refused." >&2; exit 1; fi
+else
+  if [ "$(jq -r '.preview' "$TMP/manifest.json")" != "false" ]; then echo "$MONTH: manifest is a preview. Refused." >&2; exit 1; fi
+  if [ "$(jq -r '.complete' "$TMP/manifest.json")" != "true" ]; then echo "$MONTH: the month was not over when this was built. Refused." >&2; exit 1; fi
+fi
 
 if [ -f "$DIR/manifest.json" ]; then
   if cmp -s "$DIR/manifest.json" "$TMP/manifest.json"; then echo "$MONTH: already here, unchanged."; exit 0; fi
@@ -37,7 +45,7 @@ for i in $(seq 0 $((n - 1))); do
   f=$(jq -er ".files[$i].file" "$TMP/manifest.json")
   want=$(jq -er ".files[$i].sha256" "$TMP/manifest.json")
   if ! [[ "$f" =~ ^[a-z0-9.-]+$ ]] || ! [[ "$want" =~ ^[0-9a-f]{64}$ ]]; then echo "$MONTH: bad entry in manifest: $f" >&2; exit 1; fi
-  curl -sS -L --fail --max-time 600 -o "$TMP/$f" "$ROOT/$DIR/$f?t=$(date +%s)"
+  curl -sS -L --fail --max-time 600 -o "$TMP/$f" "$ROOT/$SRC/$f?t=$(date +%s)"
   got=$(sha256sum "$TMP/$f" | cut -d' ' -f1)
   if [ "$got" != "$want" ]; then echo "$MONTH: $f has fingerprint $got, manifest says $want." >&2; exit 1; fi
 done
