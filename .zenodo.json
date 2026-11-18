@@ -1,0 +1,20 @@
+{
+  "title": "RNWY record: a dated public record of MCP servers and ERC-8004 agents",
+  "description": "<p>The dated public record kept by RNWY (https://rnwy.com). One file per day says what each listed MCP server answered when it was checked. On the 1st of each month a snapshot of the month just ended is added: one row per listed MCP server; one row per indexed on-chain agent, with the date its score was computed; the month's tool-list history; the registration-file record of ERC-8004 agents on Ethereum, BNB Chain and Base (fingerprints and dates, not the files); and RNWY's review analysis, with the method it was made under.</p><p>Every file's SHA-256 is in a manifest, and each file is signed when it is committed. The record says what was observed and when. Scores and the review analysis are RNWY's readings under its published methodology (https://rnwy.com/methodology); they are not findings of fact about any server, agent, owner or reviewer.</p>",
+  "upload_type": "dataset",
+  "creators": [
+    { "name": "RNWY" }
+  ],
+  "license": "cc-by-4.0",
+  "access_right": "open",
+  "keywords": [
+    "Model Context Protocol",
+    "MCP servers",
+    "ERC-8004",
+    "AI agents",
+    "uptime record",
+    "tool lists",
+    "registration files",
+    "transparency log"
+  ]
+}
