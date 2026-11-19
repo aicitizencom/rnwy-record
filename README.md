@@ -17,10 +17,21 @@ On the 1st of each month a snapshot of the month just ended is added, tagged `sn
 snapshots/YYYY-MM/manifest.json            every file's row count and SHA-256; each daily file's fingerprint; gap days
 snapshots/YYYY-MM/mcp-servers.csv.gz       one row per listed MCP server
 snapshots/YYYY-MM/agents.csv.gz            one row per indexed on-chain agent, with the date its score was computed
-snapshots/YYYY-MM/tool-list-history.csv.gz the month's tool-list scans (fingerprints, not full lists)
+snapshots/YYYY-MM/tool-list-history.csv.gz the month's tool-list history lines (fingerprints, not full lists)
 snapshots/YYYY-MM/listing-events.csv.gz    the month's dated listing status changes
+snapshots/YYYY-MM/registration-files.csv.gz    one row per ERC-8004 agent RNWY holds on Ethereum, BNB Chain and Base:
+                                               its registration file when last read (fingerprints and dates, not the file)
+snapshots/YYYY-MM/registration-history.csv.gz  the month's first readings and changes of those files
+snapshots/YYYY-MM/review-analysis.csv.gz       RNWY's reading of the reviews of each agent with enough of them,
+                                               with the method it was made under and the date it was computed
 snapshots/YYYY-MM/ledger.json              daily coverage for the month and every dated ledger event
 ```
+
+Three things to know when reading a snapshot:
+
+- **Tool lists.** Until method tools-1.2 every reading of a server's tool list wrote a history line. From tools-1.2 (November 2026) a line is written on a server's first reading and on every change; `tool_scans_in_month` in `mcp-servers` counts every reading either way.
+- **Registration files.** A registration file is what an agent's owner declares about the agent. RNWY records it and does not check it. The files are not copied here; each is public at its own address. `address_host` is the host that address points at, or `inline`, `ipfs`, `arweave` or `other`. Lists of key names are JSON arrays of text the owner wrote.
+- **Review analysis.** This is RNWY's reading of public review data under its published method, named in the `method` column, for agents with at least five reviews. It is a reading, not a finding of fact about any agent, owner or reviewer. Reviewer addresses that the analysis flagged are counted, not listed.
 
 In `mcp-servers`, an empty cell means RNWY made no check or no scan. It does not mean the server failed. In `agents`, a score computed in an earlier month is published as that earlier score, with its date.
 

@@ -5,9 +5,11 @@ name: Publish the monthly snapshot
 # No secrets. Nothing is measured or computed here.
 #
 # Rehearsal (by hand only): runs every step for real on RNWY's preview of a month, on a branch
-# and a tag of its own, as a pre-release marked "not a snapshot", and then removes the release,
+# and a tag of its own, as a draft release marked "not a snapshot", and then removes the release,
 # the tag and the branch again. It never writes to main or under snapshots/. It is how the path
-# is proven before the 1st without publishing anything permanent.
+# is proven before the 1st without publishing anything permanent. The rehearsal release is a
+# draft, never a published one: a published release of this repository is archived by Zenodo
+# and given a permanent identifier, and a rehearsal must not be.
 
 on:
   schedule:
@@ -123,9 +125,9 @@ jobs:
           } > notes.md
           if [ "$REHEARSAL" = "1" ]; then
             { echo "REHEARSAL. This is not a snapshot. It was built from a preview to test the publishing steps and is removed again by the same run."; echo; cat notes.md; } > rehearsal-notes.md
-            gh release create "$tag" "$dir"/* --prerelease --title "Rehearsal $MONTH (not a snapshot)" --notes-file rehearsal-notes.md
+            gh release create "$tag" "$dir"/* --draft --title "Rehearsal $MONTH (not a snapshot)" --notes-file rehearsal-notes.md
             echo "The rehearsal release as GitHub holds it:"
-            gh release view "$tag" --json name,isPrerelease,tagName,assets --jq '{name, isPrerelease, tagName, assets: [.assets[] | {name, size}]}'
+            gh release view "$tag" --json name,isDraft,tagName,assets --jq '{name, isDraft, tagName, assets: [.assets[] | {name, size}]}'
           else
             gh release create "$tag" "$dir"/* --title "Snapshot $MONTH" --notes-file notes.md
           fi
